@@ -4,13 +4,11 @@ Run via: bench --site yoursite.local execute next_attendance.dashboard.create_da
 Safe to run multiple times — updates existing records.
 """
 import frappe
-import json
 
 
 NUMBER_CARDS = [
     {
-        "name":          "Kiosk Present Today",
-        "label":         "Present Today",
+        "label":         "Kiosk - Present Today",
         "document_type": "Person Attendance",
         "function":      "Count",
         "aggregate_function_based_on": "name",
@@ -20,8 +18,7 @@ NUMBER_CARDS = [
         "color":         "#3CC88F",
     },
     {
-        "name":          "Kiosk Absent Today",
-        "label":         "Absent Today",
+        "label":         "Kiosk - Absent Today",
         "document_type": "Person",
         "function":      "Count",
         "aggregate_function_based_on": "name",
@@ -31,8 +28,7 @@ NUMBER_CARDS = [
         "color":         "#E53935",
     },
     {
-        "name":          "Kiosk Checked In Only",
-        "label":         "Checked In (No OUT)",
+        "label":         "Kiosk - Checked In Only",
         "document_type": "Person Attendance",
         "function":      "Count",
         "aggregate_function_based_on": "name",
@@ -42,8 +38,7 @@ NUMBER_CARDS = [
         "color":         "#F59E0B",
     },
     {
-        "name":          "Kiosk Total Persons",
-        "label":         "Total Registered",
+        "label":         "Kiosk - Total Registered",
         "document_type": "Person",
         "function":      "Count",
         "aggregate_function_based_on": "name",
@@ -54,20 +49,18 @@ NUMBER_CARDS = [
 
 CHARTS = [
     {
-        "name":           "Kiosk Monthly Attendance Trend",
-        "chart_name":     "Monthly Attendance Trend",
-        "chart_type":     "Count",
-        "document_type":  "Person Attendance",
-        "based_on":       "attendance_date",
-        "filters_json":   '[["log_type","=","IN"]]',
-        "type":           "Bar",
-        "color":          "#3CC88F",
-        "time_interval":  "Daily",
-        "timespan":       "Last Month",
+        "chart_name":    "Kiosk - Monthly Attendance Trend",
+        "chart_type":    "Count",
+        "document_type": "Person Attendance",
+        "based_on":      "attendance_date",
+        "filters_json":  '[["log_type","=","IN"]]',
+        "type":          "Bar",
+        "color":         "#3CC88F",
+        "time_interval": "Daily",
+        "timespan":      "Last Month",
     },
     {
-        "name":          "Kiosk Group Attendance Today",
-        "chart_name":    "Group Attendance Today",
+        "chart_name":    "Kiosk - Group Attendance Today",
         "chart_type":    "Custom",
         "document_type": "Person Attendance",
         "based_on":      "attendance_date",
@@ -81,11 +74,11 @@ CHARTS = [
 ]
 
 
-# ── Custom metric methods (called by number cards) ────────────────────────────
+# ── Custom metric methods ─────────────────────────────────────────────────────
 
 @frappe.whitelist()
 def get_present_today():
-    today = frappe.utils.today()
+    today   = frappe.utils.today()
     punches = frappe.db.get_all(
         "Person Attendance",
         filters={"attendance_date": today},
@@ -107,7 +100,7 @@ def get_absent_today():
 
 @frappe.whitelist()
 def get_partial_today():
-    today = frappe.utils.today()
+    today   = frappe.utils.today()
     punches = frappe.db.get_all(
         "Person Attendance",
         filters={"attendance_date": today},
@@ -121,7 +114,7 @@ def get_partial_today():
 
 @frappe.whitelist()
 def get_group_attendance_today(**kwargs):
-    today = frappe.utils.today()
+    today   = frappe.utils.today()
     punches = frappe.db.get_all(
         "Person Attendance",
         filters={"attendance_date": today},
@@ -132,7 +125,7 @@ def get_group_attendance_today(**kwargs):
         by_person.setdefault(p.person, set()).add(p.log_type)
     present_set = {pid for pid, t in by_person.items() if "IN" in t and "OUT" in t}
 
-    persons = frappe.db.get_all("Person", filters={"status": "Active"}, fields=["name", "group"])
+    persons   = frappe.db.get_all("Person", filters={"status": "Active"}, fields=["name", "group"])
     group_map = {}
     for p in persons:
         grp = p.get("group") or "No Group"
@@ -141,7 +134,7 @@ def get_group_attendance_today(**kwargs):
         if p.name in present_set:
             group_map[grp]["present"] += 1
 
-    labels  = list(group_map.keys())
+    labels = list(group_map.keys())
     return {
         "labels":   labels,
         "datasets": [
@@ -151,35 +144,56 @@ def get_group_attendance_today(**kwargs):
     }
 
 
-# ── Dashboard creation ────────────────────────────────────────────────────────
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _upsert(doctype, data):
-    """Insert or update a document — never fails on duplicates."""
-    name = data["name"]
-    try:
-        if frappe.db.exists(doctype, name):
-            doc = frappe.get_doc(doctype, name)
-            doc.update(data)
-            doc.save(ignore_permissions=True)
-            print(f"  Updated {doctype}: {name}")
-        else:
-            doc = frappe.new_doc(doctype)
-            doc.update(data)
-            doc.insert(ignore_permissions=True)
-            print(f"  Created {doctype}: {name}")
+def _upsert_card(data):
+    """Upsert a Number Card. Returns the actual doc.name after save."""
+    label    = data["label"]
+    existing = frappe.db.get_value("Number Card", {"label": label}, "name")
+    if existing:
+        doc = frappe.get_doc("Number Card", existing)
+        doc.update(data)
+        doc.save(ignore_permissions=True)
         frappe.db.commit()
-    except Exception as e:
-        print(f"  ERROR {doctype} '{name}': {e}")
+        print(f"  Updated Number Card: {doc.name}")
+        return doc.name
+    else:
+        doc = frappe.new_doc("Number Card")
+        doc.update(data)
+        doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+        print(f"  Created Number Card: {doc.name}")
+        return doc.name
 
+
+def _upsert_chart(data):
+    """Upsert a Dashboard Chart. Returns the actual doc.name after save."""
+    chart_name = data["chart_name"]
+    existing   = frappe.db.get_value("Dashboard Chart", {"chart_name": chart_name}, "name")
+    if existing:
+        doc = frappe.get_doc("Dashboard Chart", existing)
+        doc.update(data)
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        print(f"  Updated Dashboard Chart: {doc.name}")
+        return doc.name
+    else:
+        doc = frappe.new_doc("Dashboard Chart")
+        doc.update(data)
+        doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+        print(f"  Created Dashboard Chart: {doc.name}")
+        return doc.name
+
+
+# ── Entry point ───────────────────────────────────────────────────────────────
 
 def create_dashboard():
     print("\n── Number Cards ──")
-    for card in NUMBER_CARDS:
-        _upsert("Number Card", card)
+    card_names = [_upsert_card(c) for c in NUMBER_CARDS]
 
     print("\n── Charts ──")
-    for chart in CHARTS:
-        _upsert("Dashboard Chart", chart)
+    chart_names = [_upsert_chart(c) for c in CHARTS]
 
     print("\n── Dashboard ──")
     dash_name = "Kiosk Attendance"
@@ -192,14 +206,14 @@ def create_dashboard():
             dash = frappe.new_doc("Dashboard")
             dash.dashboard_name = dash_name
 
-        for card in NUMBER_CARDS:
-            dash.append("cards",  {"card":  card["name"]})
-        for chart in CHARTS:
-            dash.append("charts", {"chart": chart["name"]})
+        for name in card_names:
+            dash.append("cards",  {"card":  name})
+        for name in chart_names:
+            dash.append("charts", {"chart": name})
 
         dash.save(ignore_permissions=True)
         frappe.db.commit()
-        print(f"  Dashboard '{dash_name}' ready!")
-        print("\nNavigate to: Frappe Admin → Dashboard → Kiosk Attendance")
+        print(f"  Dashboard '{dash_name}' is ready!")
+        print("\n  Navigate: Frappe Admin → search 'Dashboard' → Kiosk Attendance")
     except Exception as e:
         print(f"  ERROR creating Dashboard: {e}")
