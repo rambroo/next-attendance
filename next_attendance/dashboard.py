@@ -47,9 +47,11 @@ NUMBER_CARDS = [
     },
 ]
 
+# Only standard chart_types (Count / Sum / Average / Min / Max).
+# chart_type "Custom" requires a Dashboard Chart Source record — not supported here.
 CHARTS = [
     {
-        "chart_name":    "Kiosk - Monthly Attendance Trend",
+        "chart_name":    "Kiosk - Daily Check-Ins (Last Month)",
         "chart_type":    "Count",
         "document_type": "Person Attendance",
         "based_on":      "attendance_date",
@@ -60,21 +62,28 @@ CHARTS = [
         "timespan":      "Last Month",
     },
     {
-        "chart_name":    "Kiosk - Group Attendance Today",
-        "chart_type":    "Custom",
+        "chart_name":    "Kiosk - Daily Check-Outs (Last Month)",
+        "chart_type":    "Count",
         "document_type": "Person Attendance",
         "based_on":      "attendance_date",
-        "filters_json":  "[]",
-        "type":          "Bar",
+        "filters_json":  '[["log_type","=","OUT"]]',
+        "type":          "Line",
         "color":         "#1A6B47",
-        "method":        "next_attendance.dashboard.get_group_attendance_today",
         "time_interval": "Daily",
         "timespan":      "Last Month",
     },
 ]
 
+# Old chart names that used chart_type="Custom" — delete these if they exist
+OBSOLETE_CHARTS = [
+    "Kiosk Monthly Attendance Trend",
+    "Kiosk Group Attendance Today",
+    "Kiosk - Monthly Attendance Trend",
+    "Kiosk - Group Attendance Today",
+]
 
-# ── Custom metric methods ─────────────────────────────────────────────────────
+
+# ── Custom metric methods (used by Number Cards) ──────────────────────────────
 
 @frappe.whitelist()
 def get_present_today():
@@ -112,42 +121,9 @@ def get_partial_today():
     return sum(1 for t in by_person.values() if "IN" in t and "OUT" not in t)
 
 
-@frappe.whitelist()
-def get_group_attendance_today(**kwargs):
-    today   = frappe.utils.today()
-    punches = frappe.db.get_all(
-        "Person Attendance",
-        filters={"attendance_date": today},
-        fields=["person", "log_type"],
-    )
-    by_person = {}
-    for p in punches:
-        by_person.setdefault(p.person, set()).add(p.log_type)
-    present_set = {pid for pid, t in by_person.items() if "IN" in t and "OUT" in t}
-
-    persons   = frappe.db.get_all("Person", filters={"status": "Active"}, fields=["name", "group"])
-    group_map = {}
-    for p in persons:
-        grp = p.get("group") or "No Group"
-        group_map.setdefault(grp, {"present": 0, "total": 0})
-        group_map[grp]["total"] += 1
-        if p.name in present_set:
-            group_map[grp]["present"] += 1
-
-    labels = list(group_map.keys())
-    return {
-        "labels":   labels,
-        "datasets": [
-            {"name": "Present", "values": [group_map[g]["present"] for g in labels]},
-            {"name": "Total",   "values": [group_map[g]["total"]   for g in labels]},
-        ],
-    }
-
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _upsert_card(data):
-    """Upsert a Number Card. Returns the actual doc.name after save."""
     label    = data["label"]
     existing = frappe.db.get_value("Number Card", {"label": label}, "name")
     if existing:
@@ -167,7 +143,6 @@ def _upsert_card(data):
 
 
 def _upsert_chart(data):
-    """Upsert a Dashboard Chart. Returns the actual doc.name after save."""
     chart_name = data["chart_name"]
     existing   = frappe.db.get_value("Dashboard Chart", {"chart_name": chart_name}, "name")
     if existing:
@@ -186,9 +161,25 @@ def _upsert_chart(data):
         return doc.name
 
 
+def _delete_obsolete_charts():
+    for chart_name in OBSOLETE_CHARTS:
+        name = frappe.db.get_value("Dashboard Chart", {"chart_name": chart_name}, "name") \
+               or frappe.db.exists("Dashboard Chart", chart_name)
+        if name:
+            try:
+                frappe.delete_doc("Dashboard Chart", name, ignore_permissions=True, force=True)
+                frappe.db.commit()
+                print(f"  Deleted obsolete chart: {name}")
+            except Exception as e:
+                print(f"  Could not delete {name}: {e}")
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def create_dashboard():
+    print("\n── Cleanup obsolete charts ──")
+    _delete_obsolete_charts()
+
     print("\n── Number Cards ──")
     card_names = [_upsert_card(c) for c in NUMBER_CARDS]
 
@@ -213,7 +204,7 @@ def create_dashboard():
 
         dash.save(ignore_permissions=True)
         frappe.db.commit()
-        print(f"  Dashboard '{dash_name}' is ready!")
-        print("\n  Navigate: Frappe Admin → search 'Dashboard' → Kiosk Attendance")
+        print(f"\n  ✓ Dashboard '{dash_name}' is ready!")
+        print("  Navigate: Frappe Admin → Dashboard → Kiosk Attendance")
     except Exception as e:
-        print(f"  ERROR creating Dashboard: {e}")
+        print(f"  ERROR: {e}")
