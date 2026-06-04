@@ -1,0 +1,36 @@
+{
+  "add_total_row": 0,
+  "columns": [],
+  "disabled": 0,
+  "doctype": "Report",
+  "filters": [
+    {
+      "fieldname": "date",
+      "fieldtype": "Date",
+      "label": "Date",
+      "default": "Today",
+      "reqd": 1
+    },
+    {
+      "fieldname": "group",
+      "fieldtype": "Data",
+      "label": "Group / Class"
+    },
+    {
+      "fieldname": "person_type",
+      "fieldtype": "Select",
+      "label": "Person Type",
+      "options": "\nStudent\nSales Person\nVolunteer\nIntern\nSales Partner\nContractor\nOther"
+    }
+  ],
+  "is_standard": "Yes",
+  "letter_head": null,
+  "module": "Custom",
+  "name": "Kiosk Daily Attendance",
+  "prepared_report": 0,
+  "query": "",
+  "ref_doctype": "Person Attendance",
+  "report_name": "Kiosk Daily Attendance",
+  "report_type": "Script Report",
+  "roles": []
+}

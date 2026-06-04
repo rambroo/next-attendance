@@ -1,0 +1,14 @@
+[project]
+name = "next_attendance"
+authors = [{ name = "TechNiti", email = "rohanrambhiya59@gmail.com" }]
+description = "Attendance app backend — employee punch-in/out, kiosk mode, person attendance tracking"
+requires-python = ">=3.10"
+readme = "README.md"
+dynamic = ["version"]
+
+[build-system]
+requires = ["flit_core >=3.4,<4"]
+build-backend = "flit_core.buildapi"
+
+[tool.flit.module]
+name = "next_attendance"
