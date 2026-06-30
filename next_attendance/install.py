@@ -10,10 +10,11 @@ import frappe
 
 CUSTOM_FIELDS = {
     "Employee Checkin": [
-        {"fieldname": "custom_selfie_image",   "label": "Selfie Image",     "fieldtype": "Data",  "insert_after": "device_id",            "read_only": 1},
-        {"fieldname": "custom_geofence_status","label": "Geofence Status",   "fieldtype": "Data",  "insert_after": "custom_selfie_image",  "read_only": 1},
-        {"fieldname": "latitude",              "label": "Latitude",          "fieldtype": "Float", "insert_after": "custom_geofence_status","read_only": 1},
-        {"fieldname": "longitude",             "label": "Longitude",         "fieldtype": "Float", "insert_after": "latitude",             "read_only": 1},
+        {"fieldname": "custom_selfie_image",   "label": "Selfie Image",     "fieldtype": "Data",       "insert_after": "device_id",             "read_only": 1},
+        {"fieldname": "custom_geofence_status","label": "Geofence Status",   "fieldtype": "Data",       "insert_after": "custom_selfie_image",   "read_only": 1},
+        {"fieldname": "custom_notes",          "label": "Notes",             "fieldtype": "Small Text", "insert_after": "custom_geofence_status"},
+        {"fieldname": "latitude",              "label": "Latitude",          "fieldtype": "Float",      "insert_after": "custom_notes",          "read_only": 1},
+        {"fieldname": "longitude",             "label": "Longitude",         "fieldtype": "Float",      "insert_after": "latitude",              "read_only": 1},
     ]
 }
 
@@ -104,12 +105,14 @@ SERVER_SCRIPTS = [
             "latitude  = d.get('latitude')\n"
             "longitude = d.get('longitude')\n"
             "file_url  = d.get('selfie_file_url', '')\n"
+            "notes     = d.get('notes', '')\n"
             "if not (employee and log_type and time_str):\n"
             "    frappe.throw('employee, log_type and time are required')\n"
             "checkin = frappe.get_doc({'doctype': 'Employee Checkin', 'employee': employee, 'log_type': log_type, 'time': time_str})\n"
             "if latitude:  checkin.latitude  = frappe.utils.flt(latitude)\n"
             "if longitude: checkin.longitude = frappe.utils.flt(longitude)\n"
             "if file_url:  checkin.custom_selfie_image = file_url\n"
+            "if notes:     checkin.custom_notes = notes\n"
             "checkin.insert(ignore_permissions=False)\n"
             "frappe.response['message'] = checkin.as_dict()\n"
         ),
