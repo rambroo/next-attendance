@@ -6,6 +6,13 @@ requires-python = ">=3.10"
 readme = "README.md"
 dynamic = ["version"]
 
+# Frappe Cloud reads this to pick a compatible bench. The app only uses
+# long-stable framework APIs (frappe.whitelist, has_permission, get_files_path,
+# utils.password.get_encryption_key, and the "download" response type), so the
+# range is deliberately wide rather than pinned to the v16 dev bench.
+[tool.bench.frappe-dependencies]
+frappe = ">=15.0.0,<17.0.0"
+
 [build-system]
 requires = ["flit_core >=3.4,<4"]
 build-backend = "flit_core.buildapi"
