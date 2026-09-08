@@ -10,8 +10,9 @@ import frappe
 
 CUSTOM_FIELDS = {
     "Employee Checkin": [
-        {"fieldname": "custom_selfie_image",   "label": "Selfie Image",     "fieldtype": "Data",       "insert_after": "device_id",             "read_only": 1},
-        {"fieldname": "custom_geofence_status","label": "Geofence Status",   "fieldtype": "Data",       "insert_after": "custom_selfie_image",   "read_only": 1},
+        {"fieldname": "custom_selfie_image",   "label": "Selfie Image",     "fieldtype": "Attach Image", "insert_after": "device_id",           "read_only": 1},
+        {"fieldname": "custom_geofence_status","label": "Geofence Status",   "fieldtype": "Select", "options": "\nWithin Range\nOutside Range",
+         "insert_after": "custom_selfie_image", "read_only": 1},
         {"fieldname": "custom_notes",          "label": "Notes",             "fieldtype": "Small Text", "insert_after": "custom_geofence_status"},
         {"fieldname": "latitude",              "label": "Latitude",          "fieldtype": "Float",      "insert_after": "custom_notes",          "read_only": 1},
         {"fieldname": "longitude",             "label": "Longitude",         "fieldtype": "Float",      "insert_after": "latitude",              "read_only": 1},
@@ -220,7 +221,12 @@ def _create_doctypes():
 def _create_custom_fields():
     try:
         from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
-        create_custom_fields(CUSTOM_FIELDS, ignore_validate=True)
+        # update=False is load-bearing. This app is installed onto sites whose
+        # fields were created by hand and may be tuned locally; the default
+        # update=True rewrites any existing field to match the dict above,
+        # which is how a live "Attach Image" selfie field got downgraded to
+        # plain Data on first install. Create what is missing, touch nothing else.
+        create_custom_fields(CUSTOM_FIELDS, ignore_validate=True, update=False)
     except Exception as e:
         frappe.log_error(f"next_attendance._create_custom_fields: {e}")
 
@@ -230,9 +236,12 @@ def _create_server_scripts():
         name = script_data["name"]
         try:
             if frappe.db.exists("Server Script", name):
-                doc = frappe.get_doc("Server Script", name)
-                doc.update(script_data)
-                doc.save(ignore_permissions=True)
+                # Leave an existing script alone. These are live API endpoints
+                # that a site may have edited (e.g. the geofence script is
+                # disabled on production); silently replacing them on install
+                # would discard those changes. Ship script updates through a
+                # patch instead, where the intent is explicit.
+                continue
             else:
                 doc = frappe.get_doc({"doctype": "Server Script", **script_data})
                 doc.insert(ignore_permissions=True)
