@@ -10,7 +10,10 @@ import frappe
 
 CUSTOM_FIELDS = {
     "Employee Checkin": [
-        {"fieldname": "custom_selfie_image",   "label": "Selfie Image",     "fieldtype": "Attach Image", "insert_after": "device_id",           "read_only": 1},
+        # Not read_only: HR/System Manager users check in through the desk form and
+        # attach the selfie with this field's own button. Frappe hides that button
+        # on a read-only field, which silently blocked HR check-ins after install.
+        {"fieldname": "custom_selfie_image",   "label": "Selfie",           "fieldtype": "Attach Image", "insert_after": "device_id",           "read_only": 0},
         {"fieldname": "custom_geofence_status","label": "Geofence Status",   "fieldtype": "Select", "options": "\nWithin Range\nOutside Range",
          "insert_after": "custom_selfie_image", "read_only": 1},
         {"fieldname": "custom_notes",          "label": "Notes",             "fieldtype": "Small Text", "insert_after": "custom_geofence_status"},
