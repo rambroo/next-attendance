@@ -72,6 +72,34 @@ def _resolve_path(file_url: str) -> str:
     return path
 
 
+_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".heic")
+
+
+def _is_own_selfie(checkin: dict, file_url: str) -> bool:
+    """True only if ``file_url`` is an image uploaded for this check-in.
+
+    The punch API accepts the selfie URL from the client, so the stored value is
+    untrusted: without this check an employee could punch with the path of any
+    private file (a colleague's salary slip, an ID scan) and then have it signed
+    and served here. A selfie is accepted only when its File record exists, is
+    an image, and was uploaded by the user who created the check-in or is
+    attached to that check-in.
+    """
+    if not file_url.lower().endswith(_IMAGE_EXTENSIONS):
+        return False
+    files = frappe.get_all(
+        "File",
+        filters={"file_url": file_url},
+        fields=["owner", "attached_to_doctype", "attached_to_name"],
+        limit=20,
+    )
+    return any(
+        f.owner == checkin.owner
+        or (f.attached_to_doctype == "Employee Checkin" and f.attached_to_name == checkin.name)
+        for f in files
+    )
+
+
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
 
@@ -90,8 +118,11 @@ def sign_selfies(checkins):
     for name in names[:_MAX_BATCH]:
         if not frappe.has_permission("Employee Checkin", ptype="read", doc=name):
             continue
-        file_url = frappe.db.get_value("Employee Checkin", name, "custom_selfie_image")
-        if file_url:
+        checkin = frappe.db.get_value(
+            "Employee Checkin", name, ["name", "owner", "custom_selfie_image"], as_dict=True
+        )
+        file_url = checkin and checkin.custom_selfie_image
+        if file_url and _is_own_selfie(checkin, file_url):
             out[name] = _signed_url(file_url)
     return out
 

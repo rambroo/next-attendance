@@ -112,6 +112,19 @@ SERVER_SCRIPTS = [
             "notes     = d.get('notes', '')\n"
             "if not (employee and log_type and time_str):\n"
             "    frappe.throw('employee, log_type and time are required')\n"
+            # The client sends the punch time (the app queues punches offline and
+            # sends the capture time later). Accept it, but only within a window:
+            # not in the future beyond clock drift, and not older than 48 hours.
+            "punch_time = frappe.utils.get_datetime(time_str)\n"
+            "age = frappe.utils.time_diff_in_seconds(frappe.utils.now_datetime(), punch_time)\n"
+            "if age < -600:\n"
+            "    frappe.throw('Punch time is in the future. Please check the date and time on your phone.')\n"
+            "if age > 172800:\n"
+            "    frappe.throw('This punch is more than 48 hours old and cannot be recorded. Please contact HR.')\n"
+            # The selfie URL also comes from the client: only accept a file this
+            # user actually uploaded, so it can't point at someone else's file.
+            "if file_url and not frappe.db.exists('File', {'file_url': file_url, 'owner': frappe.session.user}):\n"
+            "    frappe.throw('Selfie upload not found for your account. Please retake the selfie.')\n"
             "checkin = frappe.get_doc({'doctype': 'Employee Checkin', 'employee': employee, 'log_type': log_type, 'time': time_str})\n"
             "if latitude:  checkin.latitude  = frappe.utils.flt(latitude)\n"
             "if longitude: checkin.longitude = frappe.utils.flt(longitude)\n"
@@ -126,6 +139,11 @@ SERVER_SCRIPTS = [
         "api_method": "techniti_kiosk_lookup", "allow_guest": 0,
         "script": (
             "d = frappe.form_dict\n"
+            # Any logged-in account could otherwise look up and mark attendance
+            # for any person by guessing ID numbers.
+            "KIOSK_ROLES = ['Kiosk User', 'Operations Manager', 'HR Manager', 'System Manager']\n"
+            "if not frappe.db.exists('Has Role', {'parent': frappe.session.user, 'parenttype': 'User', 'role': ['in', KIOSK_ROLES]}):\n"
+            "    frappe.throw('Not permitted: this account is not set up as a kiosk.')\n"
             "id_number = d.get('id_number')\n"
             "if not id_number:\n"
             "    frappe.throw('ID number is required')\n"
@@ -141,6 +159,11 @@ SERVER_SCRIPTS = [
         "api_method": "techniti_kiosk_punch", "allow_guest": 0,
         "script": (
             "d = frappe.form_dict\n"
+            # Any logged-in account could otherwise look up and mark attendance
+            # for any person by guessing ID numbers.
+            "KIOSK_ROLES = ['Kiosk User', 'Operations Manager', 'HR Manager', 'System Manager']\n"
+            "if not frappe.db.exists('Has Role', {'parent': frappe.session.user, 'parenttype': 'User', 'role': ['in', KIOSK_ROLES]}):\n"
+            "    frappe.throw('Not permitted: this account is not set up as a kiosk.')\n"
             "id_number  = d.get('id_number')\n"
             "location   = d.get('location') or 'Kiosk'\n"
             "device_id  = d.get('device_id') or 'unknown'\n"
@@ -164,26 +187,33 @@ SERVER_SCRIPTS = [
         "name": "Employee Checkin Geofence & Selfie Validation",
         "script_type": "DocType Event", "reference_doctype": "Employee Checkin",
         "doctype_event": "Before Save", "allow_guest": 0,
+        # Off until the site's coordinates are filled in — enabled with the
+        # example location it would block every check-in.
+        "disabled": 1,
         "script": (
-            "import math\n"
-            "from frappe.utils import flt\n"
-            "LOCATIONS = [{'name': 'WCWW Office', 'lat': 19.2172, 'lon': 72.8246, 'radius': 50}, {'name': 'Old Age Home', 'lat': 19.2165, 'lon': 72.8246, 'radius': 50}]\n"
-            "def haversine(lat1, lon1, lat2, lon2):\n"
-            "    R = 6371000\n"
-            "    phi1, phi2 = math.radians(lat1), math.radians(lat2)\n"
-            "    dphi, dlam = math.radians(lat2-lat1), math.radians(lon2-lon1)\n"
-            "    a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlam/2)**2\n"
-            "    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))\n"
-            "lat, lon = flt(doc.get('latitude')), flt(doc.get('longitude'))\n"
+            "# Ships DISABLED. Replace the example below with your own sites, then enable\n"
+            "# this script. cos_lat = cos(latitude in radians), e.g. 0.9444 at 19.2 N.\n"
+            "LOCATIONS = [\n"
+            "    {'name': 'Example office', 'lat': 12.9716, 'lon': 77.5946, 'radius': 50, 'cos_lat': 0.9745},\n"
+            "]\n"
+            "lat = frappe.utils.flt(doc.get('latitude'))\n"
+            "lon = frappe.utils.flt(doc.get('longitude'))\n"
             "if lat and lon:\n"
+            "    nearest = None\n"
             "    for loc in LOCATIONS:\n"
-            "        dist = haversine(lat, lon, loc['lat'], loc['lon'])\n"
+            "        dlat = (loc['lat'] - lat) * 111320.0\n"
+            "        dlon = (loc['lon'] - lon) * 111320.0 * loc['cos_lat']\n"
+            "        dist = (dlat * dlat + dlon * dlon) ** 0.5\n"
             "        if dist <= loc['radius']:\n"
-            "            doc.custom_geofence_status = f\"Within Range — {loc['name']} ({int(dist)}m)\"\n"
+            "            doc.custom_geofence_status = 'Within Range'\n"
+            "            doc.custom_matched_location = loc['name']\n"
+            "            doc.custom_distance_meters = int(dist)\n"
+            "            nearest = None\n"
             "            break\n"
-            "    else:\n"
-            "        min_dist = min(haversine(lat, lon, l['lat'], l['lon']) for l in LOCATIONS)\n"
-            "        frappe.throw(f'Check-in blocked: You are {int(min_dist)}m away. Must be within 50m.')\n"
+            "        if nearest is None or dist < nearest:\n"
+            "            nearest = dist\n"
+            "    if nearest is not None:\n"
+            "        frappe.throw('Check-in blocked: you are ' + str(int(nearest)) + ' m from the nearest allowed location.')\n"
         ),
     },
 ]
@@ -191,7 +221,15 @@ SERVER_SCRIPTS = [
 
 # ── Entry points called by hooks.py ──────────────────────────────────────────
 
+def _create_roles():
+    # Dedicated low-privilege role for kiosk devices. Give the kiosk's API user
+    # this role only, rather than a staff member's own account.
+    if not frappe.db.exists("Role", "Kiosk User"):
+        frappe.get_doc({"doctype": "Role", "role_name": "Kiosk User", "desk_access": 0}).insert(ignore_permissions=True)
+
+
 def after_install():
+    _create_roles()
     _create_doctypes()
     _create_custom_fields()
     _create_server_scripts()
@@ -200,6 +238,7 @@ def after_install():
 
 
 def after_migrate():
+    _create_roles()
     _create_doctypes()
     _create_custom_fields()
     _create_server_scripts()
